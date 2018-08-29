@@ -1,0 +1,34 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform:
+- AWS::Serverless-2016-10-31
+
+Parameters:
+  ProjectId:
+    Type: String
+    Description: Authentication Service API
+
+Resources:
+  BasicPackMachineAPI:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: ./bin/lambdaRunner.handler
+      Runtime: nodejs8.10
+      CodeUri: ./
+      Environment:
+        Variables:
+          NODE_ENV: production
+          JWT_SECRET: green_eggs_and_ham
+
+      Role: arn:aws:iam::036522339758:role/MachinesAPITestRole
+
+      Events:
+        GetEvent:
+          Type: Api
+          Properties:
+            Path: /{all+}
+            Method: any
+        GetEventAtRoot:
+          Type: Api
+          Properties:
+            Path: /
+            Method: any
