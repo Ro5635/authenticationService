@@ -11,7 +11,7 @@ Resources:
   AuthenticationServiceAPI:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: ./bin/lambdaRunner.handler
+      Handler: bin/lambdaRunner.handler
       Runtime: nodejs8.10
       CodeUri: ./
       Environment:
