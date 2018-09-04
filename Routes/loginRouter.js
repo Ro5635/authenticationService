@@ -21,29 +21,32 @@ router.post('/', async function (req, res) {
 
     // TODO: Extract logic from router
 
+    const passedUserEmail = req.body.userEmail;
+    const passedUserPassword = req.body.userPassword;
 
     try {
 
         // Attempt to get user model with the provided credentials
-        const user = await userModel.getUser('Robert', 'password');
+        const user = await userModel.getUser(passedUserEmail, passedUserPassword);
 
-        logger.debug('Successfully got user from User Model');
+        logger.debug('Successfully got User from User Model');
 
         logger.debug('requesting JWT');
 
         let jwtPayload = {};
 
-        jwtPayload.userName = user.getUserName();
+        jwtPayload.email = user.getEmail();
         jwtPayload.firstName = user.getFirstName();
         jwtPayload.lastName = user.getLastName();
         jwtPayload.age = user.getAge();
-        jwtPayload.email = user.getEmail();
         jwtPayload.rights = user.getRights();
         jwtPayload.jwtPayload = user.getJWTPayload();
 
         const token = await authTokenProvider.getToken(jwtPayload);
 
-        res.send(token);
+        const responseObject = {jwt: token};
+
+        res.send(responseObject);
 
 
 

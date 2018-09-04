@@ -4,7 +4,9 @@
   "description": "Authentication service for use across several of my projects, provides users with a valid JWT with the users rights.",
   "main": "bin/lambdaRunner.js",
   "dependencies": {
+    "@ro5635/dynamodbwrapper": "^4.0.0",
     "aws-serverless-express": "^3.3.5",
+    "bcrypt": "^3.0.0",
     "body-parser": "^1.18.3",
     "bunyan": "^1.8.12",
     "cookie-parser": "^1.4.3",
