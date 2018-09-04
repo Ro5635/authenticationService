@@ -35,6 +35,12 @@ router.post('/', async function (req, res) {
 
         let jwtPayload = {};
 
+        jwtPayload.iat = Math.floor(Date.now() / 1000);
+        jwtPayload.iss = "authenticationService";
+        // Set expiry an hour from now
+        jwtPayload.exp = Math.floor(Date.now() / 1000) + (60 * 60);
+
+        jwtPayload.userID = user.getUserID();
         jwtPayload.email = user.getEmail();
         jwtPayload.firstName = user.getFirstName();
         jwtPayload.lastName = user.getLastName();

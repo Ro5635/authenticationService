@@ -55,7 +55,7 @@ exports.getUser = function (userEmail, userPassword) {
             if (suppliedCredentialsCorrect) {
                 // Create the User object
                 logger.debug('Crating a new User instance from the user data');
-                const callersUser = new User(userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userData.userRights, userData.userJWTPayload);
+                const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userData.userRights, userData.userJWTPayload);
 
                 // return the new User object
                 return resolve(callersUser);
@@ -188,14 +188,19 @@ function validateAuthenticationCredentials(suppliedPassword, passwordHash) {
  * @param jwtPayload                JSON Object with additional payload
  * @constructor
  */
-function User(email, firstName, lastName, age, rights, jwtPayload) {
-    this._email = 'ro5635@gmail.com';
-    this._firstname = 'Barry';
-    this._lastName = 'Smith';
-    this._age = 22;
-    this._rights = {};
-    this._jwtPayload = {};
+function User(userID, email, firstName, lastName, age, rights, jwtPayload) {
+    this._userID = userID;
+    this._email = email;
+    this._firstname = firstName;
+    this._lastName = lastName;
+    this._age = age;
+    this._rights = rights;
+    this._jwtPayload = jwtPayload;
 
+
+    this.getUserID = function () {
+        return this._userID;
+    };
 
     this.getFirstName = function () {
         return this._firstname;
