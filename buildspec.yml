@@ -4,6 +4,7 @@ phases:
   install:
     commands:
     # Install dependencies needed for running tests
+    - npm --version
     - npm install
 
     # Prevent files from having a timestamp before 1980
