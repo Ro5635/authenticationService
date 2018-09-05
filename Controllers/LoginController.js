@@ -10,6 +10,16 @@ const logger = require('../Helpers/LogHelper').getLogger(__filename);
 const userModel = require('../Models/userModel');
 const authTokenProvider = require('../Models/authTokenProvider');
 
+/**
+ * handleLogin
+ *
+ * Takes the supplied userEmail and userPassword and attempts to find a matching account
+ * if the supplied credentials match an account then a JWT will be created for that user.
+ *
+ * @param userEmail
+ * @param userPassword
+ * @returns {Promise<JWT>}          returns a JWT for the authenticated user
+ */
 exports.handleLogin = function (userEmail, userPassword) {
     return new Promise(async (resolve, reject) => {
 

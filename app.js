@@ -20,6 +20,7 @@ app.use(function (req, res, next) {
     "use strict";
     res.setHeader('x-powered-by', 'The Geese');
     res.setHeader('content-type', 'application/json');
+    // TODO: Create list of allowed origins
     res.setHeader('Access-Control-Allow-Origin', '*');
     next();
 });
