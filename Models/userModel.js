@@ -180,6 +180,7 @@ function validateAuthenticationCredentials(suppliedPassword, passwordHash) {
  *
  * Models a user within the system and the interactions that can be completed on a user
  *
+ * @param userID
  * @param email
  * @param firstName
  * @param lastName
