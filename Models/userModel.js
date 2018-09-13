@@ -297,7 +297,7 @@ function validateAuthenticationCredentials(suppliedPassword, passwordHash) {
  *
  * @param userID        User Identifier
  * @param eventType     Event type to bring back (eg: 'FailedLoginAttempt', 'PasswordChange')
- * @returns {Promise<aquiredUserEvents>}        Array of acquired Events
+ * @returns {Promise<acquiredUserEvents>}        Array of acquired Events
  */
 function getUserEvents(userID, eventType) {
     return new Promise(async (resolve, reject) => {
@@ -424,7 +424,7 @@ function putUserEvent(userID, eventType, occurredAt, additionalParams = {}) {
  * @param userID                                User Identifier
  * @param periodStartInUnix                     Unix Epoch timestamp in seconds that events brought back should AFTER
  * @param periodEndInUnix                       Unix Epoch timestamp in seconds that events brought back should BEFORE
- * @returns {Promise<aquiredUserEvents>}        Array of aquired Events
+ * @returns {Promise<acquiredUserEvents>}        Array of aquired Events
  */
 function getUserFailedLoginAttemptsInPeriod(userID, periodStartInUnix, periodEndInUnix) {
     return new Promise(async (resolve, reject) => {
