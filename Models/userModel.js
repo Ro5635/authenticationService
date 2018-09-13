@@ -45,6 +45,7 @@ exports.getUser = function (userEmail, userPassword) {
 
                     logger.error('Invalid authentication details supplied for user');
 
+                    // There is no need to log the failed authentication attempt as there is no user to log it against
                     return reject(err);
 
                 }
@@ -62,11 +63,10 @@ exports.getUser = function (userEmail, userPassword) {
                 logger.error('Suspicious activity detected on account');
                 logger.error('Aborting authentication process and returning account locked');
 
-                reject(new Error('AuthenticationBlocked-AccountLocked'));
-
-                // Once the response has been made to the caller complete the cleanup
+                // logger.debug('Adding authenticationFailure to userEvent log');
                 await putUserEvent(userData.userID, 'FailedLoginAttempt', getCurrentUnixTime());
-                return;
+
+                return reject(new Error('AuthenticationBlocked-AccountLocked'));
 
             }
 
@@ -84,25 +84,24 @@ exports.getUser = function (userEmail, userPassword) {
                 logger.debug('Creating a new User instance from the user data');
                 const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userData.userRights, userData.userJWTPayload);
 
-                // return the new User object
-                resolve(callersUser);
-
-                // After caller has had user object returned clean up by adding successful authentication event to the db
+                // Add successful authentication event to the db
                 logger.debug('Putting successfulAuthentication event to users events');
                 await putUserEvent(userData.userID, 'successfulAuthentication', getCurrentUnixTime());
 
-                return;
+                // return the new User object
+                return resolve(callersUser);
+
 
             }
 
             // Authentication details were incorrect, return AuthenticationFailure
             logger.debug('Supplied password did not match supplied username');
-            logger.debug('Returning AuthenticationFailure');
 
-            reject(new Error('AuthenticationFailure'));
-
-            // Clean up by adding the authentication failure to the users events
+            logger.debug('Adding authenticationFailure to userEvent log');
             await putUserEvent(userData.userID, 'FailedLoginAttempt', getCurrentUnixTime());
+
+            logger.debug('Returning AuthenticationFailure');
+            return reject(new Error('AuthenticationFailure'));
 
 
         } catch (err) {
@@ -390,9 +389,7 @@ function putUserEvent(userID, eventType, occurredAt, additionalParams = {}) {
             requestParams.ConditionExpression = "attribute_not_exists(eventID)";
 
             logger.debug('Attempting to put new user event to database');
-            const dbPut = await docClient.put(requestParams).promise();
-
-            console.log(dbPut);
+            await docClient.put(requestParams).promise();
 
             return resolve();
 
