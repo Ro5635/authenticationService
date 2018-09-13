@@ -7,8 +7,15 @@
 
 const logger = require('../Helpers/LogHelper').getLogger(__filename);
 const bcrypt = require('bcrypt');
+const uuidv1 = require('uuid/v1');
 const dbWrapper = require('@ro5635/dynamodbwrapper');
-const usersDBTable = 'globalUsersTable';
+
+// Slowly going to move away from using @ro5635/dynamodbwrapper, this was useful as a learning tool but I will now just
+// directly use the docClient directly, as a transitional stage docClient is exposed by @ro5635/dynamodbwrapper.
+const docClient = dbWrapper.AWSDocClient;
+
+const usersDBTable = process.env.USERSTABLE;
+const usersEventsDBTable = process.env.USERSEVENTSTABLE;
 
 /**
  * Returns a user object if the provided authentication details match a user account
@@ -48,17 +55,43 @@ exports.getUser = function (userEmail, userPassword) {
 
             }
 
+            // Check for suspicious activity on account
+            const userHasSuspiciousActivity = await detectFishyUserActivity(userData.userID);
+
+            if (userHasSuspiciousActivity) {
+                logger.error('Suspicious activity detected on account');
+                logger.error('Aborting authentication process and returning account locked');
+
+                reject(new Error('AuthenticationBlocked-AccountLocked'));
+
+                // Once the response has been made to the caller complete the cleanup
+                await putUserEvent(userData.userID, 'FailedLoginAttempt', getCurrentUnixTime());
+                return;
+
+            }
+
+
             // Check the supplied password matches the account that matches the userEmail supplied
+            logger.debug('Checking user credentials');
             const suppliedCredentialsCorrect = await validateAuthenticationCredentials(userPassword, userData.userPasswordHash);
 
             // If login credentials where correct create a user and return it
             if (suppliedCredentialsCorrect) {
+
+                logger.debug('Supplied password matched hash');
+
                 // Create the User object
-                logger.debug('Crating a new User instance from the user data');
+                logger.debug('Creating a new User instance from the user data');
                 const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userData.userRights, userData.userJWTPayload);
 
                 // return the new User object
-                return resolve(callersUser);
+                resolve(callersUser);
+
+                // After caller has had user object returned clean up by adding successful authentication event to the db
+                logger.debug('Putting successfulAuthentication event to users events');
+                await putUserEvent(userData.userID, 'successfulAuthentication', getCurrentUnixTime());
+
+                return;
 
             }
 
@@ -68,6 +101,10 @@ exports.getUser = function (userEmail, userPassword) {
 
             reject(new Error('AuthenticationFailure'));
 
+            // Clean up by adding the authentication failure to the users events
+            await putUserEvent(userData.userID, 'FailedLoginAttempt', getCurrentUnixTime());
+
+
         } catch (err) {
             // Catch any unexpected errors in the above block
             logger.error('Unexpected error occurred in getUser');
@@ -75,8 +112,73 @@ exports.getUser = function (userEmail, userPassword) {
 
             return reject(new Error('Unexpected error in getting user'));
         }
+
     });
 };
+
+/**
+ * detectFishyUserActivity
+ *
+ * Checks for fishy activity on the users account, this currently is only for a number of failed
+ * authentications in a time period.
+ *
+ * Returns a boolean to denote if the user has suspicious activity and authentication should be stalled.
+ *
+ *
+ * @returns {Promise<boolean>}
+ */
+function detectFishyUserActivity(userID) {
+    return new Promise(async (resolve, reject) => {
+
+        try {
+
+            const maxFailedAuthenticationAttempts = 10;
+
+            // Get the last successful user authentication
+            const successfulAuthentications = await getUserEvents(userID, 'successfulAuthentication');
+            const lastSuccessfulAuthentication = successfulAuthentications[successfulAuthentications.length - 1];
+
+            const threeMonthsAgoInUnix = Math.floor(addMonthsToDate(new Date(), -3) / 1000);
+
+            // Search period is either up to the last successful authentication or 3 months, whichever is shortest
+            const searchPeriodStartDateInUnix = lastSuccessfulAuthentication.eventOccuredAt > threeMonthsAgoInUnix ? lastSuccessfulAuthentication.eventOccuredAt : threeMonthsAgoInUnix
+
+            logger.debug('Getting failedLoginAttempts for user');
+            const failedLoginAttemptsInPeriod = await getUserFailedLoginAttemptsInPeriod(userID, searchPeriodStartDateInUnix);
+
+            logger.debug(`User has ${failedLoginAttemptsInPeriod.length} failed authentications in search period`);
+
+            // Has there been an unacceptable number of failed attempted logins?
+            if (failedLoginAttemptsInPeriod.length > maxFailedAuthenticationAttempts) {
+                logger.error('Too manny failed login attempts detected');
+
+                return resolve(true);
+            }
+
+            //TODO: Add more account checks
+
+            logger.debug('No fishy activity detected on account');
+            return resolve(false)
+
+        } catch (err) {
+
+            logger.error('Error in detecting fishy user activity');
+            logger.error(err);
+
+            return reject(new Error('Failed to query for fishy user activity'));
+
+        }
+
+    });
+
+    // Additional Functions used
+
+    function addMonthsToDate(date, months) {
+        date.setMonth(date.getMonth() + months);
+        return date;
+    }
+
+}
 
 /**
  * getUserAttributesFromDBByEmail
@@ -173,6 +275,231 @@ function validateAuthenticationCredentials(suppliedPassword, passwordHash) {
         }
 
     });
+}
+
+/**
+ * get User Events
+ *
+ * Gets user events from the user events table for the provided userID and search eventType
+ *
+ * Limits: Will only return a maximum of 500 events
+ *
+ * @param userID        User Identifier
+ * @param eventType     Event type to bring back (eg: 'FailedLoginAttempt', 'PasswordChange')
+ * @returns {Promise<aquiredUserEvents>}        Array of acquired Events
+ */
+function getUserEvents(userID, eventType) {
+    return new Promise(async (resolve, reject) => {
+
+        const baseQuery = '#userID = :userID and #eventType = :eventType';
+        const attributeNames = {'#userID': 'userID', '#eventType': 'eventType'};
+        const attributeValues = {':userID': userID, ':eventType': eventType};
+
+        try {
+
+            logger.debug('Querying user Events Table');
+
+            let requestParams = {};
+
+            requestParams.TableName = usersEventsDBTable;
+            requestParams.KeyConditionExpression = baseQuery;
+            requestParams.ExpressionAttributeNames = attributeNames;
+            requestParams.ExpressionAttributeValues = attributeValues;
+            requestParams.Limit = 500;
+            requestParams.IndexName = 'userID-eventType-index';
+
+            const dbQueryResult = await docClient.query(requestParams).promise();
+
+            logger.debug({
+                dbRequestStats: {
+                    'retrievedItems': dbQueryResult.Count,
+                    'itemsScanned': dbQueryResult.ScannedCount
+                }
+            });
+
+            const acquiredUserEvents = dbQueryResult.Items;
+
+            logger.debug('Sorting events by eventOccuredAt');
+            acquiredUserEvents.sort((a, b) => a.eventOccuredAt - b.eventOccuredAt);
+
+            logger.debug('Successfully queried user events table');
+            logger.debug('Returning user events');
+            return resolve(acquiredUserEvents);
+
+
+        } catch (err) {
+            logger.error('Failed to query user Events Table');
+            logger.error(err);
+            logger.error('Returning Error from getUserEvents');
+            return reject(err);
+
+        }
+
+    });
+
+}
+
+/**
+ * putUserEvent
+ *
+ * Puts a new user event to the user events table
+ *
+ * @param userID
+ * @param eventType
+ * @param occurredAt
+ * @param additionalParams      JSON object of any additional parameters to be included
+ * @returns {Promise<any>}
+ */
+function putUserEvent(userID, eventType, occurredAt, additionalParams = {}) {
+    return new Promise(async (resolve, reject) => {
+        try {
+
+            // Validation
+            if (!userID || userID.length <= 0) return reject('No userID was supplied to putUserEvent, aborting.');
+            if (!eventType || eventType.length <= 0) return reject('No eventType was supplied to putUserEvent, aborting.');
+            if (!occurredAt || occurredAt.length <= 0) return reject('No occurredAt was supplied to putUserEvent, aborting.');
+
+            // Create a new eventID
+            // the put will then be conditional on this not existing, if it exists in the table then the put will fail.
+            // It is the callers responsibility to re-call in the very rare case of UUID collision.
+            const newEventID = uuidv1();
+
+            // Build the database request object
+            let requestParams = {};
+
+            requestParams.TableName = usersEventsDBTable;
+            requestParams.Item = {
+                'eventID': newEventID,
+                userID,
+                eventType,
+                'eventOccuredAt': occurredAt, ...additionalParams
+            };
+
+            // Add expression to ensure that it cannot overwrite an item on the case of a eventID collision
+            requestParams.ConditionExpression = "attribute_not_exists(eventID)";
+
+            logger.debug('Attempting to put new user event to database');
+            const dbPut = await docClient.put(requestParams).promise();
+
+            console.log(dbPut);
+
+            return resolve();
+
+
+        } catch (err) {
+            logger.error('Failed to putUserEvent');
+            logger.error(err);
+
+            return reject(new Error('Failed to putUserEvent'));
+
+        }
+
+    });
+}
+
+/**
+ * get getUserFailedLoginAttemptsInPeriod
+ *
+ * Gets user FailedLoginAttempts from the user events table for the provided userID in the specified period
+ * If no periodEndInUnix is passed then the current time is used
+ *
+ * The parameter periodEndInUnix is optional and the current time will be used by default
+ *
+ * With regards to dynamoDB costing on this query the initial key query of the userID and EventType consume the read
+ * capacity units, dynamoDB then handles filtering the data resulting from this query down as per the filter expression
+ * and then returns the filtered data set, there is no additional consumed read capacity units for this additional
+ * filtering.
+ *
+ * @param userID                                User Identifier
+ * @param periodStartInUnix                     Unix Epoch timestamp in seconds that events brought back should AFTER
+ * @param periodEndInUnix                       Unix Epoch timestamp in seconds that events brought back should BEFORE
+ * @returns {Promise<aquiredUserEvents>}        Array of aquired Events
+ */
+function getUserFailedLoginAttemptsInPeriod(userID, periodStartInUnix, periodEndInUnix) {
+    return new Promise(async (resolve, reject) => {
+
+        // If the periodEndInUnix is not passed use the current time as the search end date
+        periodEndInUnix = (typeof periodEndInUnix === 'undefined') ? getCurrentUnixTime() : periodEndInUnix;
+
+        // Construct the query
+        const baseQuery = '#userID = :userID and #eventType = :eventType';
+        const filterExpression = "#eventOccuredAt  > :EventsAfterUnixStamp and #eventOccuredAt < :EventsBeforeUnixStamp";
+
+        const attributeNames = {
+            '#userID': 'userID',
+            '#eventType': 'eventType',
+            '#eventOccuredAt': 'eventOccuredAt',
+        };
+        const attributeValues = {
+            ':userID': userID,
+            ':eventType': 'FailedLoginAttempt',
+            ':EventsAfterUnixStamp': periodStartInUnix,
+            ':EventsBeforeUnixStamp': periodEndInUnix
+        };
+
+        try {
+
+            logger.debug('Querying user Events Table for FailedLoginAttempts');
+            logger.debug(`In Period starting: ${periodStartInUnix} and ending: ${periodEndInUnix}`);
+
+            requestParams = {};
+
+            requestParams.TableName = usersEventsDBTable;
+            requestParams.KeyConditionExpression = baseQuery;
+            requestParams.ExpressionAttributeNames = attributeNames;
+            requestParams.ExpressionAttributeValues = attributeValues;
+            requestParams.FilterExpression = filterExpression;
+            requestParams.IndexName = 'userID-eventType-index';
+
+            const dbQueryResult = await docClient.query(requestParams).promise();
+
+            logger.debug({
+                dbRequestStats: {
+                    'retrievedItems': dbQueryResult.Count,
+                    'itemsScanned': dbQueryResult.ScannedCount
+                }
+            });
+
+            const acquiredUserEvents = dbQueryResult.Items;
+
+            logger.debug('Sorting events by eventOccuredAt');
+            acquiredUserEvents.sort((a, b) => a.eventOccuredAt - b.eventOccuredAt);
+
+            logger.debug('Successfully queried user FailedLoginAttempts on user Events table');
+            logger.debug('Returning user FailedLoginAttempts');
+            return resolve(acquiredUserEvents);
+
+
+        } catch (err) {
+            logger.error('Failed to query user Events Table for FailedLoginAttempts');
+            logger.error(err);
+            logger.error('Returning Error from getting FailedLoginAttemptsInPeriod');
+            return reject(err);
+
+        }
+
+        // Function to get the current Unix time
+        function getCurrentUnixTime() {
+            // Javascript gives in milliseconds by default
+            // convert to seconds and return
+            return Math.floor(new Date() / 1000);
+        }
+
+    });
+
+}
+
+/**
+ * getCurrentUnixTime
+ *
+ * Gets the current time in the unix time stamp format
+ *
+ * @returns {number}
+ */
+function getCurrentUnixTime() {
+    // Javascript gives in milliseconds by default
+    // convert to seconds and return
+    return Math.floor(new Date() / 1000);
 }
 
 /**

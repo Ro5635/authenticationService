@@ -62,6 +62,10 @@ exports.handleLogin = function (userEmail, userPassword) {
                 logger.error('Returning authentication failure to caller');
                 return reject({status: 401, response: {Error: "AuthenticationFailure"}});
 
+            } else if(err.message ===  "AuthenticationBlocked-AccountLocked") {
+                logger.error('Returning authentication failure to caller due to account lock');
+                return reject({status: 401, response: {Error: "AuthenticationBlocked-AccountLocked"}});
+
             }
 
             logger.error('Unexpected unknown error in login resource');
