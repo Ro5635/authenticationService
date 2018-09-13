@@ -133,15 +133,26 @@ function detectFishyUserActivity(userID) {
         try {
 
             const maxFailedAuthenticationAttempts = 10;
+            const threeMonthsAgoInUnix = Math.floor(addMonthsToDate(new Date(), -3) / 1000);
 
             // Get the last successful user authentication
             const successfulAuthentications = await getUserEvents(userID, 'successfulAuthentication');
-            const lastSuccessfulAuthentication = successfulAuthentications[successfulAuthentications.length - 1];
 
-            const threeMonthsAgoInUnix = Math.floor(addMonthsToDate(new Date(), -3) / 1000);
+            let searchPeriodStartDateInUnix;
 
-            // Search period is either up to the last successful authentication or 3 months, whichever is shortest
-            const searchPeriodStartDateInUnix = lastSuccessfulAuthentication.eventOccuredAt > threeMonthsAgoInUnix ? lastSuccessfulAuthentication.eventOccuredAt : threeMonthsAgoInUnix
+            // If there is no previous successful authentication then use the default time period
+            if (successfulAuthentications.length > 0) {
+                const lastSuccessfulAuthentication = successfulAuthentications[successfulAuthentications.length - 1];
+
+                // Search period is either up to the last successful authentication or 3 months, whichever is shortest
+                searchPeriodStartDateInUnix = lastSuccessfulAuthentication.eventOccurredAt > threeMonthsAgoInUnix ? lastSuccessfulAuthentication.eventOccurredAt : threeMonthsAgoInUnix
+
+            } else {
+                // There is no previous successful login recorded, use default time period
+                searchPeriodStartDateInUnix = threeMonthsAgoInUnix;
+
+            }
+
 
             logger.debug('Getting failedLoginAttempts for user');
             const failedLoginAttemptsInPeriod = await getUserFailedLoginAttemptsInPeriod(userID, searchPeriodStartDateInUnix);
@@ -319,8 +330,8 @@ function getUserEvents(userID, eventType) {
 
             const acquiredUserEvents = dbQueryResult.Items;
 
-            logger.debug('Sorting events by eventOccuredAt');
-            acquiredUserEvents.sort((a, b) => a.eventOccuredAt - b.eventOccuredAt);
+            logger.debug('Sorting events by eventOccurredAt');
+            acquiredUserEvents.sort((a, b) => a.eventOccurredAt - b.eventOccurredAt);
 
             logger.debug('Successfully queried user events table');
             logger.debug('Returning user events');
@@ -372,7 +383,7 @@ function putUserEvent(userID, eventType, occurredAt, additionalParams = {}) {
                 'eventID': newEventID,
                 userID,
                 eventType,
-                'eventOccuredAt': occurredAt, ...additionalParams
+                'eventOccurredAt': occurredAt, ...additionalParams
             };
 
             // Add expression to ensure that it cannot overwrite an item on the case of a eventID collision
@@ -423,12 +434,12 @@ function getUserFailedLoginAttemptsInPeriod(userID, periodStartInUnix, periodEnd
 
         // Construct the query
         const baseQuery = '#userID = :userID and #eventType = :eventType';
-        const filterExpression = "#eventOccuredAt  > :EventsAfterUnixStamp and #eventOccuredAt < :EventsBeforeUnixStamp";
+        const filterExpression = "#eventOccurredAt  > :EventsAfterUnixStamp and #eventOccurredAt < :EventsBeforeUnixStamp";
 
         const attributeNames = {
             '#userID': 'userID',
             '#eventType': 'eventType',
-            '#eventOccuredAt': 'eventOccuredAt',
+            '#eventOccurredAt': 'eventOccurredAt',
         };
         const attributeValues = {
             ':userID': userID,
@@ -462,8 +473,8 @@ function getUserFailedLoginAttemptsInPeriod(userID, periodStartInUnix, periodEnd
 
             const acquiredUserEvents = dbQueryResult.Items;
 
-            logger.debug('Sorting events by eventOccuredAt');
-            acquiredUserEvents.sort((a, b) => a.eventOccuredAt - b.eventOccuredAt);
+            logger.debug('Sorting events by eventOccurredAt');
+            acquiredUserEvents.sort((a, b) => a.eventOccurredAt - b.eventOccurredAt);
 
             logger.debug('Successfully queried user FailedLoginAttempts on user Events table');
             logger.debug('Returning user FailedLoginAttempts');
