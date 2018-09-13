@@ -10,6 +10,7 @@ Parameters:
 Resources:
   AuthenticationServiceAPI:
     Type: AWS::Serverless::Function
+    StageName: v0
     Properties:
       Handler: bin/lambdaRunner.handler
       Runtime: nodejs8.10
@@ -18,6 +19,8 @@ Resources:
         Variables:
           NODE_ENV: production
           AUTH_JWT_SECRET: green_eggs_and_ham
+          USERSTABLE: globalUsersTable
+          USERSEVENTSTABLE: globalUserEvents2
 
       Role: arn:aws:iam::036522339758:role/authenticationServiceAccessRole
 
