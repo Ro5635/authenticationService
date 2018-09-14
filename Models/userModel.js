@@ -18,13 +18,15 @@ const usersDBTable = process.env.USERSTABLE;
 const usersEventsDBTable = process.env.USERSEVENTSTABLE;
 
 /**
+ * getUserByEmail
+ *
  * Returns a user object if the provided authentication details match a user account
  *
  * @param userEmail                     user email
  * @param userPassword                  plain text user password
  * @returns {Promise<any>}
  */
-exports.getUser = function (userEmail, userPassword) {
+exports.getUserByEmail = function (userEmail, userPassword) {
     return new Promise(async (resolve, reject) => {
         try {
 
@@ -82,7 +84,14 @@ exports.getUser = function (userEmail, userPassword) {
 
                 // Create the User object
                 logger.debug('Creating a new User instance from the user data');
-                const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userData.userRights, userData.userJWTPayload);
+
+                logger.debug('Attempting to parse user rights');
+                const userRights =  JSON.parse(userData.userRights);
+
+                logger.debug('Attempting to parse user JWT payload');
+                const userJWTPayload =  JSON.parse(userData.userJWTPayload);
+
+                const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userRights, userData.userJWTPayload);
 
                 // Add successful authentication event to the db
                 logger.debug('Putting successfulAuthentication event to users events');
@@ -106,14 +115,98 @@ exports.getUser = function (userEmail, userPassword) {
 
         } catch (err) {
             // Catch any unexpected errors in the above block
-            logger.error('Unexpected error occurred in getUser');
+            logger.error('Unexpected error occurred in getUserByEmail');
             logger.error(err);
 
-            return reject(new Error('Unexpected error in getting user'));
+            return reject(new Error('Unexpected error in getting userByEmail'));
         }
 
     });
 };
+
+
+/**
+ * Get a User by userID
+ *
+ * This function does not require authentication details for the requested user and is designed to be used internally
+ * The userID passed to this function therefore must be a trusted value, for example from a signed and valid JWT issued
+ * from a trusted source.
+ *
+ * @param userID        Users UserID, this should be trusted from a valid JWT
+ */
+exports.getUserByID = function(userID) {
+    return new Promise(async (resolve, reject) => {
+        try {
+
+            // Validate that the userID was passed
+            if (!userID || userID.length <= 0) return reject(new Error('AuthenticationFailure'));
+
+            // Get the user data from the DB
+            let userData = {};
+
+            try {
+                userData = await getUserAttributesFromDBByID(userID);
+
+            } catch (err) {
+                logger.error('Error in getting user');
+                logger.error('Supplied details: userName: ' + userID);
+
+                if (err.message === 'AuthenticationFailure') {
+
+                    logger.error('Invalid authentication details supplied for user');
+
+                    // There is no need to log the failed authentication attempt as there is no user to log it against
+                    return reject(err);
+
+                }
+
+                logger.error('Failed to get user attributes from DB for unexpected reason');
+                logger.error(err);
+                return reject(new Error('Failed to get user'));
+
+            }
+
+            logger.debug('Acquired calling Users User data from DB');
+
+            // Create the User object
+            logger.debug('Creating a new User instance from the user data');
+
+            logger.debug('Attempting to parse user rights');
+            const userRights =  JSON.parse(userData.userRights);
+
+            logger.debug('Attempting to parse user JWT payload');
+            const userJWTPayload =  JSON.parse(userData.userJWTPayload);
+
+            const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userRights, userData.userJWTPayload);
+
+            // Add account access event to the db
+            logger.debug('Putting AccountAccessed event to users events');
+            await putUserEvent(userData.userID, 'AccountAccessed', getCurrentUnixTime(),{"eventSource": "authenticationService"});
+
+            return resolve(callersUser);
+
+
+        } catch (err) {
+            // Catch any unexpected errors in the above block
+            logger.error('Unexpected error occurred in getUserByID');
+            logger.error(err);
+
+            return reject(new Error('Unexpected error in getting user'));
+        }
+    });
+};
+
+function createNewUser(email, firstName, lastName, age, rights, jwtPayload){
+
+    // Get a new userID
+    // the put will then be conditional on this not existing, if it exists in the table then the put will fail.
+    // It is the callers responsibility to re-call in the very rare case of UUID collision.
+    const newUserID = uuidv1();
+
+
+
+}
+
 
 /**
  * detectFishyUserActivity
@@ -191,9 +284,76 @@ function detectFishyUserActivity(userID) {
 }
 
 /**
+ * getUserAttributesFromDBByID
+ *
+ * Get userData from the DB by userID
+ *
+ * @param userID            userID of the User to get from the DB
+ * @returns {Promise<userData>}
+ */
+function getUserAttributesFromDBByID(userID) {
+    return new Promise(async (resolve, reject) => {
+
+        const baseQuery = '#userID = :userID';
+        const attributeNames = {'#userID': 'userID'};
+        const attributeValues = {':userID': userID};
+        const tableName = usersDBTable;
+
+        logger.debug('Querying users table by userID');
+        
+        try {
+
+            let requestParams = {};
+
+            requestParams.TableName = tableName;
+            requestParams.KeyConditionExpression = baseQuery;
+            requestParams.ExpressionAttributeNames = attributeNames;
+            requestParams.ExpressionAttributeValues = attributeValues;
+            requestParams.Limit = 500;
+
+            const dbQueryResult = await docClient.query(requestParams).promise();
+
+            logger.debug('Successfully queried Users table for user data');
+
+            logger.debug({
+                dbRequestStats: {
+                    'retrievedItems': dbQueryResult.Count,
+                    'itemsScanned': dbQueryResult.ScannedCount
+                }
+            });
+
+            if(dbQueryResult.Items.length === 1) {
+                logger.debug('Single user matching supplied userID found');
+                const acquiredUserData = dbQueryResult.Items[0];
+
+                return resolve(acquiredUserData);
+
+            } else if(dbQueryResult.Items.length === 0) {
+                logger.debug('No user was found for the supplied userID');
+                logger.debug('returning UserNotFound error');
+                return reject(new Error('UserNotFound'));
+
+            }
+
+            logger.error('An unexpected number of Users was found for the supplied userID');
+            throw new Error('FailedToFindSingleUser');
+
+
+
+        } catch (err) {
+            logger.error('Failed to query DB for user');
+            logger.error(err);
+
+            return reject(err);
+        }
+
+    });
+}
+
+/**
  * getUserAttributesFromDBByEmail
  *
- * Gets a user from the DB if one is dound matching the supplied userEmail
+ * Gets a user from the DB if one is found matching the supplied userEmail
  *
  * @param userEmail
  * @returns {Promise<userData>}     JSON Object containing the DBs user data fro the supplied userEmail
@@ -205,8 +365,6 @@ function getUserAttributesFromDBByEmail(userEmail) {
         const attributeNames = {'#userEmail': 'userEmail'};
         const attributeValues = {':userEmail': userEmail};
         const queryIndex = 'userEmail-index';
-
-        let acquiredUser = {};
 
         try {
             // Attempt to get user object for supplied userID by calling the DB
@@ -222,7 +380,7 @@ function getUserAttributesFromDBByEmail(userEmail) {
             if (dbQueryResult.Count === 1) {
 
                 logger.debug('Found user in db');
-                acquiredUser = dbQueryResult.Items[0];
+                const acquiredUser = dbQueryResult.Items[0];
 
                 // return user item
                 return resolve(acquiredUser);
@@ -236,7 +394,7 @@ function getUserAttributesFromDBByEmail(userEmail) {
 
             logger.error('Error in querying DB, unexpected count of users found');
             logger.error('Returning unexpected error to caller');
-            return new Error('Unexpected Error');
+            throw new Error('Unexpected Error');
 
 
         } catch (err) {
@@ -421,7 +579,7 @@ function putUserEvent(userID, eventType, occurredAt, additionalParams = {}) {
  * @param userID                                User Identifier
  * @param periodStartInUnix                     Unix Epoch timestamp in seconds that events brought back should AFTER
  * @param periodEndInUnix                       Unix Epoch timestamp in seconds that events brought back should BEFORE
- * @returns {Promise<acquiredUserEvents>}        Array of aquired Events
+ * @returns {Promise<acquiredUserEvents>}        Array of acquired Events
  */
 function getUserFailedLoginAttemptsInPeriod(userID, periodStartInUnix, periodEndInUnix) {
     return new Promise(async (resolve, reject) => {

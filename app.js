@@ -7,6 +7,7 @@ const bodyParser = require('body-parser');
 // Setup Routers
 const index = require('./Routes/index');
 const loginRouter = require('./Routes/loginRouter');
+const userRouter = require('./Routes/userRouter');
 
 const app = express();
 
@@ -29,7 +30,7 @@ app.use(function (req, res, next) {
 // Routers
 app.use('/', index);
 app.use('/login', loginRouter);
-
+app.use('/user/', userRouter);
 
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {
