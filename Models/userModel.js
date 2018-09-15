@@ -86,10 +86,10 @@ exports.getUserByEmail = function (userEmail, userPassword) {
                 logger.debug('Creating a new User instance from the user data');
 
                 logger.debug('Attempting to parse user rights');
-                const userRights =  JSON.parse(userData.userRights);
+                const userRights = JSON.parse(userData.userRights);
 
                 logger.debug('Attempting to parse user JWT payload');
-                const userJWTPayload =  JSON.parse(userData.userJWTPayload);
+                const userJWTPayload = JSON.parse(userData.userJWTPayload);
 
                 const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userRights, userData.userJWTPayload);
 
@@ -134,7 +134,7 @@ exports.getUserByEmail = function (userEmail, userPassword) {
  *
  * @param userID        Users UserID, this should be trusted from a valid JWT
  */
-exports.getUserByID = function(userID) {
+exports.getUserByID = function (userID) {
     return new Promise(async (resolve, reject) => {
         try {
 
@@ -149,7 +149,7 @@ exports.getUserByID = function(userID) {
 
             } catch (err) {
                 logger.error('Error in getting user');
-                logger.error('Supplied details: userName: ' + userID);
+                logger.error('Supplied details: userID: ' + userID);
 
                 if (err.message === 'AuthenticationFailure') {
 
@@ -171,17 +171,11 @@ exports.getUserByID = function(userID) {
             // Create the User object
             logger.debug('Creating a new User instance from the user data');
 
-            logger.debug('Attempting to parse user rights');
-            const userRights =  JSON.parse(userData.userRights);
-
-            logger.debug('Attempting to parse user JWT payload');
-            const userJWTPayload =  JSON.parse(userData.userJWTPayload);
-
-            const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userRights, userData.userJWTPayload);
+            const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userData.userRights, userData.userJWTPayload);
 
             // Add account access event to the db
             logger.debug('Putting AccountAccessed event to users events');
-            await putUserEvent(userData.userID, 'AccountAccessed', getCurrentUnixTime(),{"eventSource": "authenticationService"});
+            await putUserEvent(userData.userID, 'AccountAccessed', getCurrentUnixTime(), {"eventSource": "authenticationService"});
 
             return resolve(callersUser);
 
@@ -196,14 +190,92 @@ exports.getUserByID = function(userID) {
     });
 };
 
-function createNewUser(email, firstName, lastName, age, rights, jwtPayload){
+/**
+ * createNewUser
+ *
+ * Creates a new user in the system, the calling function is responsible for ensuring that the calling user has the
+ * necessary rights to create a new user.
+ *
+ * Constraints:
+ * A new user cannot be created where the email is already allocated to an existing user
+ *
+ * @param email
+ * @param firstName
+ * @param lastName
+ * @param age
+ * @param rights                JSON Object
+ * @param jwtPayload            JSON Object
+ */
+exports.createNewUser = function (password, email, firstName, lastName, age, rights, jwtPayload) {
+    return new Promise(async (resolve, reject) => {
 
-    // Get a new userID
-    // the put will then be conditional on this not existing, if it exists in the table then the put will fail.
-    // It is the callers responsibility to re-call in the very rare case of UUID collision.
-    const newUserID = uuidv1();
+        // Create an object to hold details of the new users creation
+        const creationDetails = {CreatedAt: getCurrentUnixTime(), createdBy: 'authenticationService'};
+
+        try {
+
+            // Validation
+            if (!email || email.length <= 0) return reject(new Error('ValidationFailed'));
+            if (!firstName || firstName.length <= 0) return reject(new Error('ValidationFailed'));
+            if (!lastName || lastName.length <= 0) return reject(new Error('ValidationFailed'));
+            if (!age || age.length <= 0) return reject(new Error('ValidationFailed'));
+
+            if (!rights) return reject(new Error('ValidationFailed'));
+            if (!jwtPayload) return reject(new Error('ValidationFailed'));
+
+            // Get a new userID
+            // the put will then be conditional on this not existing, if it exists in the table then the put will fail.
+            // It is the callers responsibility to re-call in the very rare case of UUID collision.
+            const newUserID = uuidv1();
+
+            logger.debug('Generating password hash');
+            const hashedPassword = await generatePasswordHash(password);
+
+            logger.debug('Attempting to create new user on DB');
+
+            // Build the database request object
+            let requestParams = {};
+
+            requestParams.TableName = usersDBTable;
+            requestParams.Item = {
+                "userID": newUserID,
+                "userEmail": email,
+                "userPasswordHash": hashedPassword,
+                "userFirstName": firstName,
+                "userLastName": lastName,
+                "userAge": age,
+                "userRights": rights,
+                "userJWTPayload": jwtPayload,
+                creationDetails
+            };
+
+            // Add expression to ensure that it cannot overwrite an item on the case of a userID collision
+            requestParams.ConditionExpression = "attribute_not_exists(userID)";
+
+            logger.debug('Attempting to put new user to database');
+            await docClient.put(requestParams).promise();
+
+            logger.debug('Successfully created new user');
+            logger.debug('Creating new User object from new user');
+
+            const newUser = await this.getUserByID(newUserID);
+
+            logger.debug('Successfully got new  User object with newly created user');
+
+            return resolve(newUser);
 
 
+        } catch (err) {
+            logger.error('Failed to create new user');
+            logger.error(err);
+
+            return reject(new Error('FailedToCreateUser'));
+
+
+        }
+
+
+    });
 
 }
 
@@ -294,50 +366,39 @@ function detectFishyUserActivity(userID) {
 function getUserAttributesFromDBByID(userID) {
     return new Promise(async (resolve, reject) => {
 
-        const baseQuery = '#userID = :userID';
-        const attributeNames = {'#userID': 'userID'};
-        const attributeValues = {':userID': userID};
-        const tableName = usersDBTable;
-
         logger.debug('Querying users table by userID');
-        
+
         try {
+
+            if (!userID || userID.length <= 0) throw new Error('Cannot get undefined User');
 
             let requestParams = {};
 
-            requestParams.TableName = tableName;
-            requestParams.KeyConditionExpression = baseQuery;
-            requestParams.ExpressionAttributeNames = attributeNames;
-            requestParams.ExpressionAttributeValues = attributeValues;
-            requestParams.Limit = 500;
+            requestParams.TableName = usersDBTable;
+            requestParams.Key = {"userID": userID};
 
-            const dbQueryResult = await docClient.query(requestParams).promise();
+            const dbQueryResult = await docClient.get(requestParams).promise();
 
             logger.debug('Successfully queried Users table for user data');
 
-            logger.debug({
-                dbRequestStats: {
-                    'retrievedItems': dbQueryResult.Count,
-                    'itemsScanned': dbQueryResult.ScannedCount
-                }
-            });
+            // logger.debug({
+            //     dbRequestStats: {
+            //         'retrievedItems': dbQueryResult.Count,
+            //         'itemsScanned': dbQueryResult.ScannedCount
+            //     }
+            // });
 
-            if(dbQueryResult.Items.length === 1) {
+            if (dbQueryResult.Item) {
                 logger.debug('Single user matching supplied userID found');
-                const acquiredUserData = dbQueryResult.Items[0];
+                const acquiredUserData = dbQueryResult.Item;
 
                 return resolve(acquiredUserData);
 
-            } else if(dbQueryResult.Items.length === 0) {
-                logger.debug('No user was found for the supplied userID');
-                logger.debug('returning UserNotFound error');
-                return reject(new Error('UserNotFound'));
-
             }
 
-            logger.error('An unexpected number of Users was found for the supplied userID');
-            throw new Error('FailedToFindSingleUser');
-
+            logger.debug('No user was found for the supplied userID');
+            logger.debug('returning UserNotFound error');
+            return reject(new Error('UserNotFound'));
 
 
         } catch (err) {
@@ -439,6 +500,30 @@ function validateAuthenticationCredentials(suppliedPassword, passwordHash) {
             logger.error('unexpected error in validation of user credentials');
 
             return reject(new Error('Unexpected Error in validating credentials'));
+
+        }
+
+    });
+}
+
+function generatePasswordHash(plainTextPassword) {
+    return new Promise(async (resolve, reject) => {
+
+        const saltRounds = 10;
+
+        try {
+            // The first 22 characters of the hash decode to a 16-byte value for the salt
+            // where the fist few characters separated by $ encode the algorithm type
+            // The salt is added to the front of the cipher text.
+            const newHash = await bcrypt.hash(plainTextPassword, saltRounds);
+
+            return resolve(newHash);
+
+        } catch (err) {
+            logger.error('unexpected error in password hash generation');
+            logger.error(err);
+
+            return reject(new Error('Unexpected Error In Hashing Password'));
 
         }
 

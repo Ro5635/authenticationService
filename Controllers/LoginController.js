@@ -26,7 +26,7 @@ exports.handleLogin = function (userEmail, userPassword) {
         try {
 
             // Attempt to get user model with the provided credentials
-            const user = await userModel.getUser(userEmail, userPassword);
+            const user = await userModel.getUserByEmail(userEmail, userPassword);
 
             logger.debug('Successfully got User from User Model');
 

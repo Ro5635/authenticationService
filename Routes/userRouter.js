@@ -55,6 +55,7 @@ router.post('/create', [
         logger.debug('Validation passed');
 
         // Sanitise to be on the safe side
+        const userPassword = req.body.userPassword;
         const cleanEmail = DOMPurify.sanitize(req.body.userEmail);
         const cleanFName = DOMPurify.sanitize(req.body.userFirstName);
         const cleanLName = DOMPurify.sanitize(req.body.userLastName);
@@ -67,7 +68,7 @@ router.post('/create', [
         const cleanJWTPayload = JSON.parse(cleanJWTPayloadString);
 
         // Attempt to create a new user
-        const response = await UserLogic.handleCreateUser(5635, cleanEmail, cleanFName, cleanLName, cleanAge, cleanRights, cleanJWTPayload);
+        const response = await UserLogic.handleCreateUser("5635", userPassword, cleanEmail, cleanFName, cleanLName, cleanAge, cleanRights, cleanJWTPayload);
 
         logger.debug('User creation request succeeded');
         logger.debug('Returning new User to caller');

@@ -15,7 +15,7 @@ const userModel = require('../Models/userModel');
  *
  * @returns {Promise<all>}
  */
-exports.handleCreateUser = function (callingUserID, email, firstName, lastName, age, rights, jwtPayload) {
+exports.handleCreateUser = function (callingUserID, password, email, firstName, lastName, age, rights, jwtPayload) {
     return new Promise(async (resolve, reject) => {
 
         try {
@@ -25,8 +25,12 @@ exports.handleCreateUser = function (callingUserID, email, firstName, lastName, 
             // Get the callingUser's User Model
             const callingUser = await userModel.getUserByID(callingUserID);
 
+            // check the user has the required rights...
 
-            resolve({'egg': 'sand'})
+            const newUser = await userModel.createNewUser(password, email, firstName, lastName, age, rights, jwtPayload);
+
+
+            return resolve({'userID': newUser.getUserID()});
 
 
         } catch (err) {
