@@ -35,6 +35,12 @@ exports.handleCreateUser = function (callingUserID, password, email, firstName, 
 
         } catch (err) {
 
+            // Check for the errors that can be externally exposed
+            if (err.message === 'User Exists') {
+                return reject({status: 409, response: {Error: "UserExists"}});
+
+            }
+
             return reject({status: 401, response: {Error: "AuthenticationFailure"}});
 
 

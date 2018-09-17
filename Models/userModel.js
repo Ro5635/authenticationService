@@ -22,6 +22,10 @@ const usersEventsDBTable = process.env.USERSEVENTSTABLE;
  *
  * Returns a user object if the provided authentication details match a user account
  *
+ * There is currently a race condition where if two user accounts are requested at approximately the same time
+ * two accounts will be created with teh same email, these accounts will cause the login process for that
+ * account to fail.
+ *
  * @param userEmail                     user email
  * @param userPassword                  plain text user password
  * @returns {Promise<any>}
@@ -43,12 +47,12 @@ exports.getUserByEmail = function (userEmail, userPassword) {
                 logger.error('Error in getting user');
                 logger.error('Supplied details: userName: ' + userName + ' userPassword: ' + userPassword);
 
-                if (err.message === 'AuthenticationFailure') {
+                if (err.message === 'No User Found') {
 
-                    logger.error('Invalid authentication details supplied for user');
+                    logger.error('Invalid authentication details supplied for user, could not find user for supplied email');
 
                     // There is no need to log the failed authentication attempt as there is no user to log it against
-                    return reject(err);
+                    return reject(new Error('AuthenticationFailure'));
 
                 }
 
@@ -85,13 +89,7 @@ exports.getUserByEmail = function (userEmail, userPassword) {
                 // Create the User object
                 logger.debug('Creating a new User instance from the user data');
 
-                logger.debug('Attempting to parse user rights');
-                const userRights = JSON.parse(userData.userRights);
-
-                logger.debug('Attempting to parse user JWT payload');
-                const userJWTPayload = JSON.parse(userData.userJWTPayload);
-
-                const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userRights, userData.userJWTPayload);
+                const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userData.userRights, userData.userJWTPayload);
 
                 // Add successful authentication event to the db
                 logger.debug('Putting successfulAuthentication event to users events');
@@ -223,6 +221,36 @@ exports.createNewUser = function (password, email, firstName, lastName, age, rig
             if (!rights) return reject(new Error('ValidationFailed'));
             if (!jwtPayload) return reject(new Error('ValidationFailed'));
 
+
+            // Check that there is not an existing user with the provided email address
+            // dynamoDB can only enforce unique constraints on the hash key, so we must
+            // enforce the integrity of the hash key ourselves.
+            logger.debug('Checking for existing user with provided email address');
+
+
+            try {
+                // If a user is not found then this call will throw and exception
+                await getUserAttributesFromDBByEmail(email);
+                logger.error('User found using passed email address, cannot create new user with provided email address');
+                throw new Error('User Exists');
+
+            } catch (err) {
+                if (err.message === 'No User Found') {
+                    logger.debug('No existing user was found with the supplied new email');
+                    // Resuming process to create user
+
+                } else if (err.message === 'Multiple Accounts Found') {
+                    logger.error('Multiple existing users found using new email address');
+                    logger.error('Cannot create account with address already in use');
+                    throw new Error('User Exists');
+
+                } else {
+                    logger.error('Unexpected error in getting user details by email from DB');
+                    throw new Error('Error In Testing For Existing User Email');
+                }
+            }
+
+
             // Get a new userID
             // the put will then be conditional on this not existing, if it exists in the table then the put will fail.
             // It is the callers responsibility to re-call in the very rare case of UUID collision.
@@ -269,6 +297,12 @@ exports.createNewUser = function (password, email, firstName, lastName, age, rig
             logger.error('Failed to create new user');
             logger.error(err);
 
+            // Check to see if it is one of the expected errors
+            if (err.message === 'User Exists'){
+                return reject(err);
+            }
+
+            // Unexpected error, return a general error
             return reject(new Error('FailedToCreateUser'));
 
 
@@ -277,7 +311,7 @@ exports.createNewUser = function (password, email, firstName, lastName, age, rig
 
     });
 
-}
+};
 
 
 /**
@@ -417,7 +451,7 @@ function getUserAttributesFromDBByID(userID) {
  * Gets a user from the DB if one is found matching the supplied userEmail
  *
  * @param userEmail
- * @returns {Promise<userData>}     JSON Object containing the DBs user data fro the supplied userEmail
+ * @returns {Promise<userData>}     JSON Object containing the DBs user data for the supplied userEmail
  */
 function getUserAttributesFromDBByEmail(userEmail) {
     return new Promise(async (resolve, reject) => {
@@ -449,13 +483,19 @@ function getUserAttributesFromDBByEmail(userEmail) {
             } else if (dbQueryResult.Count === 0) {
                 logger.debug('No User found matching query parameters');
                 logger.debug('Returning incorrect authentication details');
-                throw new Error('AuthenticationFailure');
+                throw new Error('No User Found');
+
+            } else if (dbQueryResult.Count > 1) {
+                logger.error('Error in querying DB, unexpected count of users found');
+                logger.error('More than one user found matching email');
+                logger.error('Returning multiple accounts matched error to user');
+                throw new Error('Multiple Accounts Found');
 
             }
 
             logger.error('Error in querying DB, unexpected count of users found');
             logger.error('Returning unexpected error to caller');
-            throw new Error('Unexpected Error');
+            throw new Error('Unexpected User Count');
 
 
         } catch (err) {
