@@ -4,6 +4,9 @@ Service to validate a users credentials and then provide a signed JWT, this can 
 
 Implemented as a Node Express API, expected to be run on AWS Lambda. template.yml contains a AWS SAM template script that will deploy the service stack to a AWS environment.
 
+
+[Post Man Docs](https://documenter.getpostman.com/view/1268576/RWaLwTqq)
+
 ## Running Locally:
 
 To run locally npm install and then run natively on the local node environment or use AWS SAM.
