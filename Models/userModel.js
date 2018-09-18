@@ -18,13 +18,21 @@ const usersDBTable = process.env.USERSTABLE;
 const usersEventsDBTable = process.env.USERSEVENTSTABLE;
 
 /**
+ * getUserByEmail
+ *
  * Returns a user object if the provided authentication details match a user account
+ *
+ * There is currently a race condition where if two user accounts are requested at approximately the same time
+ * two accounts will be created with the same email, these accounts will cause the login process for that
+ * account to fail. To knockout this race condition the createUser function could check for duplicates on close and
+ * then remove its own newly created account on the event of duplicates, however this would require a
+ * delete account function...
  *
  * @param userEmail                     user email
  * @param userPassword                  plain text user password
  * @returns {Promise<any>}
  */
-exports.getUser = function (userEmail, userPassword) {
+exports.getUserByEmail = function (userEmail, userPassword) {
     return new Promise(async (resolve, reject) => {
         try {
 
@@ -41,12 +49,12 @@ exports.getUser = function (userEmail, userPassword) {
                 logger.error('Error in getting user');
                 logger.error('Supplied details: userName: ' + userName + ' userPassword: ' + userPassword);
 
-                if (err.message === 'AuthenticationFailure') {
+                if (err.message === 'No User Found') {
 
-                    logger.error('Invalid authentication details supplied for user');
+                    logger.error('Invalid authentication details supplied for user, could not find user for supplied email');
 
                     // There is no need to log the failed authentication attempt as there is no user to log it against
-                    return reject(err);
+                    return reject(new Error('AuthenticationFailure'));
 
                 }
 
@@ -82,6 +90,7 @@ exports.getUser = function (userEmail, userPassword) {
 
                 // Create the User object
                 logger.debug('Creating a new User instance from the user data');
+
                 const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userData.userRights, userData.userJWTPayload);
 
                 // Add successful authentication event to the db
@@ -106,14 +115,211 @@ exports.getUser = function (userEmail, userPassword) {
 
         } catch (err) {
             // Catch any unexpected errors in the above block
-            logger.error('Unexpected error occurred in getUser');
+            logger.error('Unexpected error occurred in getUserByEmail');
             logger.error(err);
 
-            return reject(new Error('Unexpected error in getting user'));
+            return reject(new Error('Unexpected error in getting userByEmail'));
         }
 
     });
 };
+
+
+/**
+ * Get a User by userID
+ *
+ * This function does not require authentication details for the requested user and is designed to be used internally
+ * The userID passed to this function therefore must be a trusted value, for example from a signed and valid JWT issued
+ * from a trusted source.
+ *
+ * @param userID        Users UserID, this should be trusted from a valid JWT
+ */
+exports.getUserByID = function (userID) {
+    return new Promise(async (resolve, reject) => {
+        try {
+
+            // Validate that the userID was passed
+            if (!userID || userID.length <= 0) return reject(new Error('AuthenticationFailure'));
+
+            // Get the user data from the DB
+            let userData = {};
+
+            try {
+                userData = await getUserAttributesFromDBByID(userID);
+
+            } catch (err) {
+                logger.error('Error in getting user');
+                logger.error('Supplied details: userID: ' + userID);
+
+                if (err.message === 'AuthenticationFailure') {
+
+                    logger.error('Invalid authentication details supplied for user');
+
+                    // There is no need to log the failed authentication attempt as there is no user to log it against
+                    return reject(err);
+
+                }
+
+                logger.error('Failed to get user attributes from DB for unexpected reason');
+                logger.error(err);
+                return reject(new Error('Failed to get user'));
+
+            }
+
+            logger.debug('Acquired User data from DB for supplied UserID');
+
+            // Create the User object
+            logger.debug('Creating a new User instance from the user data');
+
+            const callersUser = new User(userData.userID, userData.userEmail, userData.userFirstName, userData.userLastName, userData.userAge, userData.userRights, userData.userJWTPayload);
+
+            // Add account access event to the db
+            logger.debug('Putting AccountAccessed event to users events');
+            await putUserEvent(userData.userID, 'AccountAccessed', getCurrentUnixTime(), {"eventSource": "authenticationService"});
+
+            return resolve(callersUser);
+
+
+        } catch (err) {
+            // Catch any unexpected errors in the above block
+            logger.error('Unexpected error occurred in getUserByID');
+            logger.error(err);
+
+            return reject(new Error('Unexpected error in getting user'));
+        }
+    });
+};
+
+/**
+ * createNewUser
+ *
+ * Creates a new user in the system, the calling function is responsible for ensuring that the calling user has the
+ * necessary rights to create a new user.
+ *
+ * Constraints:
+ * A new user cannot be created where the email is already allocated to an existing user
+ *
+ * @param email
+ * @param firstName
+ * @param lastName
+ * @param age
+ * @param rights                JSON Object
+ * @param jwtPayload            JSON Object
+ */
+exports.createNewUser = function (password, email, firstName, lastName, age, rights, jwtPayload) {
+    return new Promise(async (resolve, reject) => {
+
+        // Create an object to hold details of the new users creation
+        const creationDetails = {CreatedAt: getCurrentUnixTime(), createdBy: 'authenticationService'};
+
+        try {
+
+            // Validation
+            if (!email || email.length <= 0) return reject(new Error('ValidationFailed'));
+            if (!firstName || firstName.length <= 0) return reject(new Error('ValidationFailed'));
+            if (!lastName || lastName.length <= 0) return reject(new Error('ValidationFailed'));
+            if (!age || age.length <= 0) return reject(new Error('ValidationFailed'));
+
+            if (!rights) return reject(new Error('ValidationFailed'));
+            if (!jwtPayload) return reject(new Error('ValidationFailed'));
+
+
+            // Check that there is not an existing user with the provided email address
+            // dynamoDB can only enforce unique constraints on the hash key, so we must
+            // enforce the integrity of the hash key ourselves.
+            logger.debug('Checking for existing user with provided email address');
+
+
+            try {
+                // If a user is not found then this call will throw and exception
+                await getUserAttributesFromDBByEmail(email);
+                logger.error('User found using passed email address, cannot create new user with provided email address');
+                throw new Error('User Exists');
+
+            } catch (err) {
+                if (err.message === 'No User Found') {
+                    logger.debug('No existing user was found with the supplied new email');
+                    // Resuming process to create user
+
+                } else if (err.message === 'Multiple Accounts Found') {
+                    logger.error('Multiple existing users found using new email address');
+                    logger.error('Cannot create account with address already in use');
+                    throw new Error('User Exists');
+
+                } else if (err.message === 'User Exists') {
+                    // This could do with some refactoring, its not particularly clear code...
+                    // re-throw error to be caught by outer catch
+                    throw err;
+
+                } else {
+                    logger.error('Unexpected error in getting user details by email from DB');
+                    throw new Error('Error In Testing For Existing User Email');
+                }
+            }
+
+
+            // Get a new userID
+            // the put will then be conditional on this not existing, if it exists in the table then the put will fail.
+            // It is the callers responsibility to re-call in the very rare case of UUID collision.
+            const newUserID = uuidv1();
+
+            logger.debug('Generating password hash');
+            const hashedPassword = await generatePasswordHash(password);
+
+            logger.debug('Attempting to create new user on DB');
+
+            // Build the database request object
+            let requestParams = {};
+
+            requestParams.TableName = usersDBTable;
+            requestParams.Item = {
+                "userID": newUserID,
+                "userEmail": email,
+                "userPasswordHash": hashedPassword,
+                "userFirstName": firstName,
+                "userLastName": lastName,
+                "userAge": age,
+                "userRights": rights,
+                "userJWTPayload": jwtPayload,
+                creationDetails
+            };
+
+            // Add expression to ensure that it cannot overwrite an item on the case of a userID collision
+            requestParams.ConditionExpression = "attribute_not_exists(userID)";
+
+            logger.debug('Attempting to put new user to database');
+            await docClient.put(requestParams).promise();
+
+            logger.debug('Successfully created new user');
+            logger.debug('Creating new User object from new user');
+
+            const newUser = await this.getUserByID(newUserID);
+
+            logger.debug('Successfully got new  User object with newly created user');
+
+            return resolve(newUser);
+
+
+        } catch (err) {
+            logger.error('Failed to create new user');
+            logger.error(err);
+
+            // Check to see if it is one of the expected errors
+            if (err.message === 'User Exists') {
+                return reject(err);
+            }
+
+            // Unexpected error, return a general error
+            return reject(new Error('FailedToCreateUser'));
+
+
+        }
+
+
+    });
+
+};
+
 
 /**
  * detectFishyUserActivity
@@ -191,12 +397,68 @@ function detectFishyUserActivity(userID) {
 }
 
 /**
+ * getUserAttributesFromDBByID
+ *
+ * Get userData from the DB by userID
+ *
+ * @param userID            userID of the User to get from the DB
+ * @returns {Promise<userData>}
+ */
+function getUserAttributesFromDBByID(userID) {
+    return new Promise(async (resolve, reject) => {
+
+        logger.debug('Querying users table by userID');
+
+        try {
+
+            if (!userID || userID.length <= 0) throw new Error('Cannot get undefined User');
+
+            let requestParams = {};
+
+            requestParams.TableName = usersDBTable;
+            requestParams.Key = {"userID": userID};
+
+            const dbQueryResult = await docClient.get(requestParams).promise();
+
+            logger.debug('Successfully queried Users table for user data');
+
+            // logger.debug({
+            //     dbRequestStats: {
+            //         'retrievedItems': dbQueryResult.Count,
+            //         'itemsScanned': dbQueryResult.ScannedCount
+            //     }
+            // });
+
+            if (dbQueryResult.Item) {
+                logger.debug('Single user matching supplied userID found');
+                const acquiredUserData = dbQueryResult.Item;
+
+                return resolve(acquiredUserData);
+
+            }
+
+            logger.debug('No user was found for the supplied userID');
+            logger.debug('returning UserNotFound error');
+            return reject(new Error('UserNotFound'));
+
+
+        } catch (err) {
+            logger.error('Failed to query DB for user');
+            logger.error(err);
+
+            return reject(err);
+        }
+
+    });
+}
+
+/**
  * getUserAttributesFromDBByEmail
  *
- * Gets a user from the DB if one is dound matching the supplied userEmail
+ * Gets a user from the DB if one is found matching the supplied userEmail
  *
  * @param userEmail
- * @returns {Promise<userData>}     JSON Object containing the DBs user data fro the supplied userEmail
+ * @returns {Promise<userData>}     JSON Object containing the DBs user data for the supplied userEmail
  */
 function getUserAttributesFromDBByEmail(userEmail) {
     return new Promise(async (resolve, reject) => {
@@ -205,8 +467,6 @@ function getUserAttributesFromDBByEmail(userEmail) {
         const attributeNames = {'#userEmail': 'userEmail'};
         const attributeValues = {':userEmail': userEmail};
         const queryIndex = 'userEmail-index';
-
-        let acquiredUser = {};
 
         try {
             // Attempt to get user object for supplied userID by calling the DB
@@ -222,7 +482,7 @@ function getUserAttributesFromDBByEmail(userEmail) {
             if (dbQueryResult.Count === 1) {
 
                 logger.debug('Found user in db');
-                acquiredUser = dbQueryResult.Items[0];
+                const acquiredUser = dbQueryResult.Items[0];
 
                 // return user item
                 return resolve(acquiredUser);
@@ -230,13 +490,19 @@ function getUserAttributesFromDBByEmail(userEmail) {
             } else if (dbQueryResult.Count === 0) {
                 logger.debug('No User found matching query parameters');
                 logger.debug('Returning incorrect authentication details');
-                throw new Error('AuthenticationFailure');
+                throw new Error('No User Found');
+
+            } else if (dbQueryResult.Count > 1) {
+                logger.error('Error in querying DB, unexpected count of users found');
+                logger.error('More than one user found matching email');
+                logger.error('Returning multiple accounts matched error to user');
+                throw new Error('Multiple Accounts Found');
 
             }
 
             logger.error('Error in querying DB, unexpected count of users found');
             logger.error('Returning unexpected error to caller');
-            return new Error('Unexpected Error');
+            throw new Error('Unexpected User Count');
 
 
         } catch (err) {
@@ -281,6 +547,30 @@ function validateAuthenticationCredentials(suppliedPassword, passwordHash) {
             logger.error('unexpected error in validation of user credentials');
 
             return reject(new Error('Unexpected Error in validating credentials'));
+
+        }
+
+    });
+}
+
+function generatePasswordHash(plainTextPassword) {
+    return new Promise(async (resolve, reject) => {
+
+        const saltRounds = 10;
+
+        try {
+            // The first 22 characters of the hash decode to a 16-byte value for the salt
+            // where the fist few characters separated by $ encode the algorithm type
+            // The salt is added to the front of the cipher text.
+            const newHash = await bcrypt.hash(plainTextPassword, saltRounds);
+
+            return resolve(newHash);
+
+        } catch (err) {
+            logger.error('unexpected error in password hash generation');
+            logger.error(err);
+
+            return reject(new Error('Unexpected Error In Hashing Password'));
 
         }
 
@@ -421,7 +711,7 @@ function putUserEvent(userID, eventType, occurredAt, additionalParams = {}) {
  * @param userID                                User Identifier
  * @param periodStartInUnix                     Unix Epoch timestamp in seconds that events brought back should AFTER
  * @param periodEndInUnix                       Unix Epoch timestamp in seconds that events brought back should BEFORE
- * @returns {Promise<acquiredUserEvents>}        Array of aquired Events
+ * @returns {Promise<acquiredUserEvents>}        Array of acquired Events
  */
 function getUserFailedLoginAttemptsInPeriod(userID, periodStartInUnix, periodEndInUnix) {
     return new Promise(async (resolve, reject) => {
@@ -497,6 +787,7 @@ function getUserFailedLoginAttemptsInPeriod(userID, periodStartInUnix, periodEnd
 
 }
 
+
 /**
  * getCurrentUnixTime
  *
@@ -560,7 +851,54 @@ function User(userID, email, firstName, lastName, age, rights, jwtPayload) {
 
     this.getJWTPayload = function () {
         return this._jwtPayload;
-    }
+    };
+
+    /**
+     * hasRequiredRights
+     *
+     * Check that the caller has the required rights, if the user does not have the supplied right then false is returned.
+     * If the user does have the required right then this will resolve true.
+     *
+     * @param requiredRights        Rights the caller needs to match, example: {'MachineAccess': {'read': 1}};
+     * @returns {boolean}
+     */
+    this.hasRequiredRights = (requiredRights) => {
+
+        // Checking callers rights
+        // Get the users rights
+        const grantedRights = this.getRights();
+
+        // If the rights where not found return false
+        if (!grantedRights) return false;
+
+
+        for (let rightGroup in requiredRights) {
+
+            // Check that the right group exists
+            if(!grantedRights[rightGroup]) {
+                return false;
+            }
+
+            // Check user has each of the rights in the right group
+            for (let right in  requiredRights[rightGroup]) {
+
+                if (grantedRights[rightGroup][right] !== 1) {
+                    // console.error('Caller failed rights check');
+                    // console.error('Caller had: ' + grantedRights);
+                    // console.error('Caller required: ' + requiredRights);
+                    // console.error('Failed right: ' + grantedRights[rightGroup][right]);
+
+                    return false;
+                }
+
+            }
+
+        }
+
+        return true;
+
+
+    };
 
 }
 
