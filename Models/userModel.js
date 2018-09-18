@@ -199,6 +199,7 @@ exports.getUserByID = function (userID) {
  * Constraints:
  * A new user cannot be created where the email is already allocated to an existing user
  *
+ * @param password              Plain text password for hash generation
  * @param email
  * @param firstName
  * @param lastName
@@ -296,6 +297,9 @@ exports.createNewUser = function (password, email, firstName, lastName, age, rig
             const newUser = await this.getUserByID(newUserID);
 
             logger.debug('Successfully got new  User object with newly created user');
+
+            logger.debug('Putting account creation event to new user events');
+            await putUserEvent(newUser.getUserID(), 'AccountCreated', getCurrentUnixTime(), {"eventSource": "authenticationService"});
 
             return resolve(newUser);
 
