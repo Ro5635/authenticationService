@@ -68,7 +68,7 @@ router.post('/create', [
         const cleanJWTPayload = JSON.parse(cleanJWTPayloadString);
 
         // Attempt to create a new user
-        const response = await UserLogic.handleCreateUser("5635", userPassword, cleanEmail, cleanFName, cleanLName, cleanAge, cleanRights, cleanJWTPayload);
+        const response = await UserLogic.handleCreateUser(req.validatedJWT.userID, userPassword, cleanEmail, cleanFName, cleanLName, cleanAge, cleanRights, cleanJWTPayload);
 
         logger.debug('User creation request succeeded');
         logger.debug('Returning new User to caller');

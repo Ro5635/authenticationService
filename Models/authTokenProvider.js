@@ -2,6 +2,9 @@
  * authTokenProvider
  *
  * This model is responsible for creating a valid singed JWT.
+ *
+ * ToDO: Extract this out into the helpers and rename to better represent its function as the JWT helper
+ * TODO: Extract middleware jwt verification function to a better location
  */
 
 const jwt = require('jsonwebtoken');
@@ -28,5 +31,37 @@ exports.getToken = (payload) => {
     });
 };
 
+// Handle JWT
+exports.validateJWT = (req, res, next) => {
+
+    // Do not validate JWT for login path
+    if (req.path === '/login') {
+        logger.debug('JWT not required');
+        return next();
+    }
+
+    logger.debug('Validating provided JWT');
+
+    const passedJWT = req.headers.jwt;
+
+    jwt.verify(passedJWT, JWT_SECRET, function (err, decoded) {
+        if (err) {
+            // The JWT was invalid
+            logger.error('An Invalid JWT was supplied');
+            logger.error(err);
+            logger.error('Supplied JWT: ' + passedJWT);
+            logger.error('Returning Access Unauthorised');
+            return res.status(401).send();
+        }
+
+        logger.debug('Successfully validated JWT');
+
+        req.validatedJWT = decoded;
+
+        next();
+
+    });
+
+};
 
 module.exports = exports;

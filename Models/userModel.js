@@ -23,8 +23,10 @@ const usersEventsDBTable = process.env.USERSEVENTSTABLE;
  * Returns a user object if the provided authentication details match a user account
  *
  * There is currently a race condition where if two user accounts are requested at approximately the same time
- * two accounts will be created with teh same email, these accounts will cause the login process for that
- * account to fail.
+ * two accounts will be created with the same email, these accounts will cause the login process for that
+ * account to fail. To knockout this race condition the createUser function could check for duplicates on close and
+ * then remove its own newly created account on the event of duplicates, however this would require a
+ * delete account function...
  *
  * @param userEmail                     user email
  * @param userPassword                  plain text user password
@@ -243,6 +245,11 @@ exports.createNewUser = function (password, email, firstName, lastName, age, rig
                     logger.error('Multiple existing users found using new email address');
                     logger.error('Cannot create account with address already in use');
                     throw new Error('User Exists');
+
+                } else if (err.message === 'User Exists') {
+                    // This could do with some refactoring, its not particularly clear code...
+                    // re-throw error to be caught by outer catch
+                    throw err;
 
                 } else {
                     logger.error('Unexpected error in getting user details by email from DB');

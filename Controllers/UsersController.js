@@ -26,6 +26,19 @@ exports.handleCreateUser = function (callingUserID, password, email, firstName, 
             const callingUser = await userModel.getUserByID(callingUserID);
 
             // check the user has the required rights...
+        } catch (err) {
+
+            logger.error('Failed to get calling users rights');
+            logger.error('Could not authenticate calling user');
+            return reject({status: 401, response: {Error: "AuthenticationFailure"}});
+
+
+        }
+
+
+        // Create the new user
+        try {
+
 
             const newUser = await userModel.createNewUser(password, email, firstName, lastName, age, rights, jwtPayload);
 
@@ -35,13 +48,16 @@ exports.handleCreateUser = function (callingUserID, password, email, firstName, 
 
         } catch (err) {
 
+            logger.error('Process of creating user failed');
+            logger.error(err);
+
             // Check for the errors that can be externally exposed
             if (err.message === 'User Exists') {
                 return reject({status: 409, response: {Error: "UserExists"}});
 
             }
 
-            return reject({status: 401, response: {Error: "AuthenticationFailure"}});
+            return reject({status: 500, response: {Error: "UnexpectedFailure"}});
 
 
         }
