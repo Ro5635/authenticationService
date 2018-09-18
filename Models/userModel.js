@@ -166,7 +166,7 @@ exports.getUserByID = function (userID) {
 
             }
 
-            logger.debug('Acquired calling Users User data from DB');
+            logger.debug('Acquired User data from DB for supplied UserID');
 
             // Create the User object
             logger.debug('Creating a new User instance from the user data');
@@ -305,7 +305,7 @@ exports.createNewUser = function (password, email, firstName, lastName, age, rig
             logger.error(err);
 
             // Check to see if it is one of the expected errors
-            if (err.message === 'User Exists'){
+            if (err.message === 'User Exists') {
                 return reject(err);
             }
 
@@ -787,6 +787,7 @@ function getUserFailedLoginAttemptsInPeriod(userID, periodStartInUnix, periodEnd
 
 }
 
+
 /**
  * getCurrentUnixTime
  *
@@ -850,7 +851,54 @@ function User(userID, email, firstName, lastName, age, rights, jwtPayload) {
 
     this.getJWTPayload = function () {
         return this._jwtPayload;
-    }
+    };
+
+    /**
+     * hasRequiredRights
+     *
+     * Check that the caller has the required rights, if the user does not have the supplied right then false is returned.
+     * If the user does have the required right then this will resolve true.
+     *
+     * @param requiredRights        Rights the caller needs to match, example: {'MachineAccess': {'read': 1}};
+     * @returns {boolean}
+     */
+    this.hasRequiredRights = (requiredRights) => {
+
+        // Checking callers rights
+        // Get the users rights
+        const grantedRights = this.getRights();
+
+        // If the rights where not found return false
+        if (!grantedRights) return false;
+
+
+        for (let rightGroup in requiredRights) {
+
+            // Check that the right group exists
+            if(!grantedRights[rightGroup]) {
+                return false;
+            }
+
+            // Check user has each of the rights in the right group
+            for (let right in  requiredRights[rightGroup]) {
+
+                if (grantedRights[rightGroup][right] !== 1) {
+                    // console.error('Caller failed rights check');
+                    // console.error('Caller had: ' + grantedRights);
+                    // console.error('Caller required: ' + requiredRights);
+                    // console.error('Failed right: ' + grantedRights[rightGroup][right]);
+
+                    return false;
+                }
+
+            }
+
+        }
+
+        return true;
+
+
+    };
 
 }
 
