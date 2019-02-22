@@ -28,12 +28,12 @@ Resources:
     Type: AWS::DynamoDB::Table
     Properties:
       AttributeDefinitions:
-      - AttributeName: id
+      - AttributeName: userID
         AttributeType: S
       - AttributeName: userEmail
         AttributeType: S
       KeySchema:
-      - AttributeName: id
+      - AttributeName: userID
         KeyType: HASH
       GlobalSecondaryIndexes:
       - IndexName: "userEmail-index"
