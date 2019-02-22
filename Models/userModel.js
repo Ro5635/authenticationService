@@ -47,7 +47,7 @@ exports.getUserByEmail = function (userEmail, userPassword) {
 
             } catch (err) {
                 logger.error('Error in getting user');
-                logger.error('Supplied details: userName: ' + userName + ' userPassword: ' + userPassword);
+                logger.error('Supplied details: userEmail: ' + userEmail + ' userPassword: ' + userPassword);
 
                 if (err.message === 'No User Found') {
 

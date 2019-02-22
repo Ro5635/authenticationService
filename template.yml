@@ -8,6 +8,80 @@ Parameters:
     Description: Authentication Service API
 
 Resources:
+
+#  AuthServiceDynamoDBPermissions:
+#    Type: AWS::IAM::Policy
+#    Properties:
+#      PolicyName: "AuthServiceDynamoDBPermissions"
+#      PolicyDocument:
+#        Version: "2012-10-17"
+#        Statement:
+#        - Effect: "Allow"
+#          Action:
+#          - "dynamodb:*"
+#          Resource: "arn:aws:dynamodb:*:*:table/UsersDynamoDBTable*"
+##          Resource: "*"
+##          Resource: "arn:aws:dynamodb:eu-west-1:180742419520:table/"!Ref UsersDynamoDBTable "/index/*"
+
+  # Users Table
+  UsersDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      - AttributeName: userEmail
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      GlobalSecondaryIndexes:
+      - IndexName: "userEmail-index"
+        KeySchema:
+        - AttributeName: "userEmail"
+          KeyType: "HASH"
+        Projection:
+          ProjectionType: "ALL"
+        ProvisionedThroughput:
+          ReadCapacityUnits: "2"
+          WriteCapacityUnits: "1"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
+
+  # Users Events Table
+  UsersEventDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: eventID
+        AttributeType: S
+      - AttributeName: eventType
+        AttributeType: S
+      - AttributeName: userID
+        AttributeType: S
+      KeySchema:
+      - AttributeName: eventID
+        KeyType: HASH
+      - AttributeName: userID
+        KeyType: RANGE
+      GlobalSecondaryIndexes:
+      - IndexName: "userID-eventType-index"
+        KeySchema:
+        - AttributeName: "userID"
+          KeyType: "HASH"
+        - AttributeName: "eventType"
+          KeyType: "RANGE"
+        Projection:
+          ProjectionType: "ALL"
+        ProvisionedThroughput:
+          ReadCapacityUnits: "2"
+          WriteCapacityUnits: "1"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
+
+
   AuthenticationServiceAPI:
     Type: AWS::Serverless::Function
     StageName: v0
@@ -17,12 +91,17 @@ Resources:
       CodeUri: ./
       Environment:
         Variables:
-          NODE_ENV: production
+          NODE_ENV: prod
           AUTH_JWT_SECRET: green_eggs_and_ham
-          USERSTABLE: globalUsersTable
-          USERSEVENTSTABLE: globalUserEvents2
+          USERSTABLE: !Ref UsersDynamoDBTable
+          USERSEVENTSTABLE: !Ref UsersEventDynamoDBTable
 
-      Role: arn:aws:iam::036522339758:role/authenticationServiceAccessRole
+      Policies:
+      # Give just CRUD permissions
+      - DynamoDBCrudPolicy:
+          TableName: !Ref UsersDynamoDBTable
+      - DynamoDBCrudPolicy:
+          TableName: !Ref UsersEventDynamoDBTable
 
       Events:
         GetEvent:

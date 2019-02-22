@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  ProjectId:
+    Description: Authentication Service API
+    Type: String
+Resources:
+  AuthServiceDynamoDBPermissions:
+    Properties:
+      PolicyDocument:
+        Statement:
+        - Action:
+          - dynamodb:*
+          Effect: Allow
+          Resource: '*'
+        Version: '2012-10-17'
+      PolicyName: AuthServiceDynamoDBPermissions
+    Type: AWS::IAM::Policy
+  AuthenticationServiceAPI:
+    Properties:
+      CodeUri: s3://authentication-service-cf/3e26737859ceb02de6ed92d1a303314d
+      Environment:
+        Variables:
+          AUTH_JWT_SECRET: green_eggs_and_ham
+          NODE_ENV: prod
+          USERSEVENTSTABLE:
+            Ref: UsersEventDynamoDBTable
+          USERSTABLE:
+            Ref: UsersDynamoDBTable
+      Events:
+        GetEvent:
+          Properties:
+            Method: any
+            Path: /{all+}
+          Type: Api
+        GetEventAtRoot:
+          Properties:
+            Method: any
+            Path: /
+          Type: Api
+      Handler: bin/lambdaRunner.handler
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: UsersDynamoDBTable
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: UsersEventDynamoDBTable
+      ReservedConcurrentExecutions: 5
+      Runtime: nodejs8.10
+    StageName: v0
+    Type: AWS::Serverless::Function
+  UsersDynamoDBTable:
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      - AttributeName: userEmail
+        AttributeType: S
+      GlobalSecondaryIndexes:
+      - IndexName: userEmail-Index
+        KeySchema:
+        - AttributeName: userEmail
+          KeyType: HASH
+        Projection:
+          ProjectionType: ALL
+        ProvisionedThroughput:
+          ReadCapacityUnits: '2'
+          WriteCapacityUnits: '1'
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
+    Type: AWS::DynamoDB::Table
+  UsersEventDynamoDBTable:
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: eventID
+        AttributeType: S
+      - AttributeName: eventType
+        AttributeType: S
+      - AttributeName: userID
+        AttributeType: S
+      GlobalSecondaryIndexes:
+      - IndexName: userID-eventType-index
+        KeySchema:
+        - AttributeName: userID
+          KeyType: HASH
+        - AttributeName: eventType
+          KeyType: RANGE
+        Projection:
+          ProjectionType: ALL
+        ProvisionedThroughput:
+          ReadCapacityUnits: '2'
+          WriteCapacityUnits: '1'
+      KeySchema:
+      - AttributeName: eventID
+        KeyType: HASH
+      - AttributeName: userID
+        KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
+    Type: AWS::DynamoDB::Table
+Transform:
+- AWS::Serverless-2016-10-31
