@@ -20,20 +20,23 @@ const dev = {
 };
 
 const devSAMLocal = {
-    BOREHOLES_TABLE_NAME: "boreholesTable",
+    USERSTABLE: "globalUsersTable",
+    USERSEVENTSTABLE: "globalUserEvents2",
     AWS_API_CONFIG: {region: "local", endpoint: 'http://dynamodb-local:8000'}
 
 };
 
 
 const test = {
-    BOREHOLES_TABLE_NAME: "boreholesTable",
+    USERSTABLE: "globalUsersTable",
+    USERSEVENTSTABLE: "globalUserEvents2",
     AWS_API_CONFIG: {region: "local", endpoint: 'http://dynamodb-local:8000'}
 
 };
 
 const prod = {
-    BOREHOLES_TABLE_NAME: process.env.BOREHOLE_TABLE_NAME
+    USERSTABLE: process.env.USERSTABLE,
+    USERSEVENTSTABLE: process.env.USERSEVENTSTABLE,
 
 };
 
@@ -47,5 +50,3 @@ const config = {
 const currentConfig = Object.assign(defaultConfig, config[env]);
 
 module.exports = currentConfig;
-
-AUTH_JWT_SECRET=EggsAndHamAreNice;USERSTABLE=globalUsersTable;USERSEVENTSTABLE=globalUserEvents2

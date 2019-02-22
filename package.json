@@ -24,6 +24,7 @@
   },
   "devDependencies": {},
   "scripts": {
+    "run": "node bin/devRunner.js",
     "test": "echo \"no tests\" && exit 0"
   },
   "author": "ro5635 robert Curran",
