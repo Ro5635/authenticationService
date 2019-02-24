@@ -9,7 +9,8 @@
 
 const jwt = require('jsonwebtoken');
 const logger = require('../Helpers/LogHelper').getLogger(__filename);
-const JWT_SECRET = process.env.AUTH_JWT_SECRET;
+const config = require('../config');
+const JWT_SECRET =  config.AUTH_JWT_SECRET;
 
 if (JWT_SECRET.length < 8) {
     logger.error('Supplied JWT secret fails complexity test');

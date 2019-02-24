@@ -6,6 +6,16 @@ const cookieParser = require('cookie-parser');
 const bodyParser = require('body-parser');
 const validateJWT = require('./Models/authTokenProvider').validateJWT;
 
+// Check for env environment variable
+if (!process.env.NODE_ENV) {
+    logger.error('Environment env variable not set');
+    logger.error('NODE_ENV is required, Aborting');
+    process.exit(1);
+}
+
+// Get Config
+const config = require('./config');
+
 // Setup Routers
 const index = require('./Routes/index');
 const loginRouter = require('./Routes/loginRouter');
