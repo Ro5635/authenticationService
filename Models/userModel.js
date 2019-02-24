@@ -9,13 +9,17 @@ const logger = require('../Helpers/LogHelper').getLogger(__filename);
 const bcrypt = require('bcrypt');
 const uuidv1 = require('uuid/v1');
 const dbWrapper = require('@ro5635/dynamodbwrapper');
+const config = require('../config');
 
 // Slowly going to move away from using @ro5635/dynamodbwrapper, this was useful as a learning tool but I will now just
 // directly use the docClient directly, as a transitional stage docClient is exposed by @ro5635/dynamodbwrapper.
 const docClient = dbWrapper.AWSDocClient;
 
-const usersDBTable = process.env.USERSTABLE;
-const usersEventsDBTable = process.env.USERSEVENTSTABLE;
+const usersDBTable = config.USERSTABLE;
+const usersEventsDBTable = config.USERSEVENTSTABLE;
+const usersDBUserEmailIndex = config.USERS_TABLE_USEREMAIL_INDEX;
+const usersEventsDBUserIDEventTypeIndex = config.USEREVENTS_TABLE_USERID_EVENTTYPE_INDEX;
+
 
 /**
  * getUserByEmail
@@ -47,7 +51,7 @@ exports.getUserByEmail = function (userEmail, userPassword) {
 
             } catch (err) {
                 logger.error('Error in getting user');
-                logger.error('Supplied details: userName: ' + userName + ' userPassword: ' + userPassword);
+                logger.error('Supplied details: userEmail: ' + userEmail + ' userPassword: ' + userPassword);
 
                 if (err.message === 'No User Found') {
 
@@ -470,11 +474,10 @@ function getUserAttributesFromDBByEmail(userEmail) {
         const baseQuery = '#userEmail = :userEmail';
         const attributeNames = {'#userEmail': 'userEmail'};
         const attributeValues = {':userEmail': userEmail};
-        const queryIndex = 'userEmail-index';
 
         try {
             // Attempt to get user object for supplied userID by calling the DB
-            const dbQueryResult = await dbWrapper.query(baseQuery, attributeNames, attributeValues, usersDBTable, queryIndex);
+            const dbQueryResult = await dbWrapper.query(baseQuery, attributeNames, attributeValues, usersDBTable, usersDBUserEmailIndex);
 
             logger.debug({
                 dbRequestStats: {
@@ -610,7 +613,7 @@ function getUserEvents(userID, eventType) {
             requestParams.ExpressionAttributeNames = attributeNames;
             requestParams.ExpressionAttributeValues = attributeValues;
             requestParams.Limit = 500;
-            requestParams.IndexName = 'userID-eventType-index';
+            requestParams.IndexName = usersEventsDBUserIDEventTypeIndex;
 
             const dbQueryResult = await docClient.query(requestParams).promise();
 
@@ -751,7 +754,7 @@ function getUserFailedLoginAttemptsInPeriod(userID, periodStartInUnix, periodEnd
             requestParams.ExpressionAttributeNames = attributeNames;
             requestParams.ExpressionAttributeValues = attributeValues;
             requestParams.FilterExpression = filterExpression;
-            requestParams.IndexName = 'userID-eventType-index';
+            requestParams.IndexName = usersEventsDBUserIDEventTypeIndex;
 
             const dbQueryResult = await docClient.query(requestParams).promise();
 

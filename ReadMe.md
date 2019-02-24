@@ -7,9 +7,7 @@ Implemented as a Node Express API, expected to be run on AWS Lambda. template.ym
 
 ## Functionality
 
-> DynamoDB tables are not currently created via cloudformation automatically, this feature is currently in development. This cannot be deployed through SAM alone currently as the IAM permissions and tables need to be manualy created. When this feature is compleate details of the functionality and use of the SAM element to this project will be explained in this doc.
-
-When a user submits a post request with there login credentials to the login endpoint they will be issued with a    signed JWT with there user details. This JWT can then be used by external services for user based activities.
+When a user submits a post request with there login credentials to the login endpoint they will be issued with a signed JWT with there user details. This JWT can then be used by external services for user based activities.
 
 Example JWT payload generated for a logged in user:
 
@@ -69,12 +67,8 @@ sam local start-api
 
 ### Node locally:
 
-To run service on the local node runtime ensure to set the following environment variables and execute the below command.
-
-AUTH_JWT_SECRET=EggsAndHamAreNice
-USERSTABLE=
-USERSEVENTSTABLE=
+To run service on the local node runtime ensure to set the env environment variable is set and execute the below command.
 
 ```
-node bin\devRunner.js
+npm run-script run
 ```
