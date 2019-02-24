@@ -25,7 +25,7 @@ const devSAMLocal = {
     AUTH_JWT_SECRET: "EggsAndHamAreNice",
     USERSTABLE: "globalUsersTable",
     USERSEVENTSTABLE: "globalUserEvents2",
-    AWS_API_CONFIG: {region: "local", endpoint: 'http://dynamodb-local:8000'}
+    AWS_API_CONFIG: {region: "local", endpoint: 'http://dynamodb-local:8000'},
     USEREVENTS_TABLE_USERID_EVENTTYPE_INDEX: 'userID-eventType-index',
     USERS_TABLE_USEREMAIL_INDEX: 'userEmail-index'
 
@@ -36,7 +36,7 @@ const test = {
     AUTH_JWT_SECRET: "EggsAndHamAreNice",
     USERSTABLE: "globalUsersTable",
     USERSEVENTSTABLE: "globalUserEvents2",
-    AWS_API_CONFIG: {region: "local", endpoint: 'http://dynamodb-local:8000'}
+    AWS_API_CONFIG: {region: "local", endpoint: 'http://dynamodb-local:8000'},
     USEREVENTS_TABLE_USERID_EVENTTYPE_INDEX: 'userID-eventType-index',
     USERS_TABLE_USEREMAIL_INDEX: 'userEmail-index'
 
