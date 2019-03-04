@@ -12,6 +12,8 @@
 
 .idea
 template-export.yml
+template-export-deployment.yml
+templateDeployment.yml
 
 # User-specific stuff
 .idea/**/workspace.xml
